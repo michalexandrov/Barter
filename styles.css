@@ -1,0 +1,178 @@
+/* ============================================================
+   Бартер-дашборд — кастомные стили
+   ============================================================ */
+
+:root { color-scheme: light; }
+html.dark { color-scheme: dark; }
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+}
+
+/* ------------------------- Карточки ------------------------- */
+.card {
+  background: #ffffff;
+  border: 1px solid #e6ebf2;
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 12px 32px -20px rgba(15, 23, 42, .28);
+}
+
+html.dark .card {
+  background: #0b1220;
+  border-color: #1e293b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 12px 32px -20px rgba(0, 0, 0, .9);
+}
+
+/* ============================================================
+   Система «ввод ↔ расчёт»
+   Синий акцент + белый фон = данные пользователя.
+   Серый фон = результат расчёта (менять нельзя).
+   ============================================================ */
+
+/* Бейджи */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .1rem .4rem;
+  border-radius: .45rem;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.chip--input { background: #dbeafe; color: #1d4ed8; }
+html.dark .chip--input { background: rgba(37, 99, 235, .25); color: #93c5fd; }
+.chip--auto { background: #e2e8f0; color: #475569; }
+html.dark .chip--auto { background: rgba(51, 65, 85, .75); color: #94a3b8; }
+
+/* Карточка с данными пользователя — синий акцент слева */
+.card.input-card { border-left: 4px solid #3b82f6; }
+html.dark .card.input-card { border-left-color: #3b82f6; }
+
+/* Карточка с результатами расчёта — приглушённый фон */
+.card.auto-card { background: #f8fafc; border-color: #e2e8f0; }
+html.dark .card.auto-card { background: #0e1729; border-color: #24334a; }
+
+/* Панель расчёта внутри блока ввода — пунктирная рамка */
+.calc-panel {
+  border-radius: .75rem;
+  border: 1px dashed #cbd5e1;
+  background: #f1f5f9;
+  padding: .6rem .75rem;
+}
+html.dark .calc-panel { border-color: #334155; background: rgba(15, 23, 42, .65); }
+
+/* Маркер «рассчитывается» у полей, которые нельзя менять */
+.readonly-look { background: #f1f5f9; }
+
+/* ------------------------- Поля ввода ------------------------- */
+.input-base {
+  width: 100%;
+  height: 3rem;              /* крупное поле — удобно нажимать на смартфоне */
+  padding: 0 .875rem;
+  border-radius: .875rem;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;       /* белый фон = поле, которое можно менять */
+  color: #0f172a;
+  font-size: 1rem;           /* 16px — iOS не зумит страницу */
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  -moz-appearance: textfield;
+  appearance: textfield;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.input-base::-webkit-outer-spin-button,
+.input-base::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.input-base:hover { border-color: #94a3b8; }
+.input-base:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, .15);
+}
+
+html.dark .input-base { background: #0a1120; border-color: #334155; color: #e2e8f0; }
+html.dark .input-base:hover { border-color: #475569; }
+html.dark .input-base:focus {
+  background: #0a1120;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, .22);
+}
+
+/* Аккуратные чекбоксы */
+input[type="checkbox"] {
+  accent-color: #2563eb;
+  width: 1.15rem;
+  height: 1.15rem;
+  cursor: pointer;
+}
+
+/* ------------------------- Аккордеоны ------------------------- */
+summary { cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+summary::marker { content: ''; }
+details[open] > summary .chev { transform: rotate(180deg); }
+
+/* ------------------------- Анимации ------------------------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up { animation: fadeUp .3s ease both; }
+
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, .35); }
+  70%  { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+.pulse-ring { animation: pulseRing 1.2s ease-out 1; }
+
+/* ------------------------- Прочее ------------------------- */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Скроллбар в тёмной теме */
+html.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+html.dark ::-webkit-scrollbar-track { background: #0b1220; }
+html.dark ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* ------------------------- Печать ------------------------- */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #ffffff !important; color: #0f172a !important; }
+  header { position: static !important; }
+  .card { box-shadow: none !important; break-inside: avoid; page-break-inside: avoid; }
+  #inputSections { display: none !important; }
+  details { display: block !important; }
+  details > * { display: block !important; }
+}

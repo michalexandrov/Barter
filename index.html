@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Бартер-дашборд · Минвата ⇄ Квартиры · Казахстан</title>
+  <meta name="description" content="Интерактивный калькулятор бартерной сделки в тенге: поставка минеральной ваты в обмен на квартиры застройщика. НДС 16 %, КПН 20 %." />
+
+  <script src="vendor/tailwind.js"></script>
+  <script>
+    // Локальная копия не найдена (файл index.html открыт отдельно) — берём версию с CDN
+    if (!window.tailwind) document.write('<script src="https://cdn.tailwindcss.com"><\/script>');
+  </script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif']
+          },
+          colors: {
+            brand: {
+              50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+              400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+              800: '#1e40af', 900: '#1e3a8a'
+            }
+          },
+          boxShadow: {
+            soft: '0 1px 2px rgba(15,23,42,.04), 0 10px 30px -18px rgba(15,23,42,.25)',
+            glow: '0 0 0 1px rgba(59,130,246,.15), 0 14px 40px -18px rgba(37,99,235,.6)'
+          }
+        }
+      }
+    };
+    // Применяем тему до первой отрисовки, чтобы не было «мигания»
+    try {
+      var saved = localStorage.getItem('barter.theme');
+      if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) { /* noop */ }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script>
+    if (!window.Chart) document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
+  </script>
+  <script src="vendor/qrcode.js"></script>
+  <script>
+    if (!window.qrcode) document.write('<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"><\/script>');
+  </script>
+</head>
+
+<body class="min-h-screen bg-slate-200/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 antialiased selection:bg-brand-500/20">
+
+  <!-- ============================== ШАПКА ============================== -->
+  <header class="sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl">
+    <div class="mx-auto flex h-16 max-w-7xl items-center gap-3 px-3 sm:px-5">
+      <div class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-indigo-600 text-white shadow-glow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+          <path d="M4 7h13l-3-3m3 3-3 3" />
+          <path d="M20 17H7l3-3m-3 3 3 3" />
+        </svg>
+      </div>
+
+      <div class="min-w-0 flex-1">
+        <h1 class="truncate text-[15px] font-extrabold leading-tight sm:text-lg">Бартер-дашборд</h1>
+        <p class="truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400 sm:text-xs">
+          Минеральная вата ⇄ квартиры застройщика · Казахстан · расчёты в тенге
+        </p>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-1.5">
+        <button id="btnShare" type="button" title="Показать на телефоне (QR-код)" aria-label="Показать на телефоне"
+                class="no-print grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-brand-300 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-brand-400 sm:h-10 sm:w-10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-[18px] w-[18px]">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3h-3zM20 14v.01M20 20v.01M14 20v.01" />
+          </svg>
+        </button>
+        <button id="btnPrint" type="button" title="Печать / PDF" aria-label="Печать"
+                class="no-print grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-brand-300 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-brand-400 sm:h-10 sm:w-10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-[18px] w-[18px]">
+            <path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <path d="M6 14h12v8H6z" />
+          </svg>
+        </button>
+        <button id="btnTheme" type="button" title="Сменить тему" aria-label="Сменить тему"
+                class="no-print grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-brand-300 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-brand-400 sm:h-10 sm:w-10">
+        </button>
+        <button id="btnReset" type="button" title="Сбросить к базовым значениям" aria-label="Сбросить"
+                class="no-print grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-rose-400 sm:h-10 sm:w-10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-[18px] w-[18px]">
+            <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================== КОНТЕНТ ============================== -->
+  <main class="mx-auto max-w-7xl space-y-6 px-3 pb-24 pt-5 sm:px-5">
+
+    <!-- Вердикт -->
+    <section id="verdictWrap"></section>
+
+    <!-- ГЛАВНЫЕ ПОКАЗАТЕЛИ -->
+    <section id="heroKpis" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"></section>
+
+    <!-- ЛЕГЕНДА: ЧТО ВВОД, А ЧТО РАСЧЁТ -->
+    <section class="card flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:gap-6" aria-label="Легенда обозначений">
+      <p class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Легенда</p>
+      <div class="flex items-start gap-2.5">
+        <span class="chip chip--input mt-0.5 shrink-0">ввод</span>
+        <span class="text-[12px] leading-snug text-slate-600 dark:text-slate-300">
+          <b class="font-bold text-brand-700 dark:text-brand-400">Белые поля с синим акцентом</b> — данные, которые меняете вы
+        </span>
+      </div>
+      <div class="flex items-start gap-2.5">
+        <span class="chip chip--auto mt-0.5 shrink-0">авто</span>
+        <span class="text-[12px] leading-snug text-slate-600 dark:text-slate-300">
+          <b class="font-bold text-slate-700 dark:text-slate-200">Серые блоки</b> — результат расчёта, обновляется сам
+        </span>
+      </div>
+    </section>
+
+    <!-- ПАРАМЕТРЫ + ПОКАЗАТЕЛИ -->
+    <div class="grid gap-6 lg:grid-cols-12">
+
+      <!-- Ввод данных -->
+      <aside class="space-y-3 lg:col-span-5">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Параметры сделки</h2>
+          <span class="chip chip--input">ввод</span>
+          <div class="ml-auto flex items-center gap-1.5">
+            <button type="button" data-preset="cautious"
+                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Осторожный
+            </button>
+            <button type="button" data-preset="base"
+                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Базовый
+            </button>
+            <button type="button" data-preset="optimistic"
+                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-emerald-300 hover:text-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Оптимистичный
+            </button>
+          </div>
+        </div>
+
+        <div id="inputSections" class="space-y-3"></div>
+
+        <p class="px-1 text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+          Все расчёты выполняются мгновенно в браузере. Значения сохраняются локально на вашем устройстве.
+        </p>
+      </aside>
+
+      <!-- Результаты -->
+      <section class="space-y-5 lg:col-span-7">
+
+        <div>
+          <div class="mb-3 flex items-center gap-2">
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Показатели сделки</h2>
+            <span class="chip chip--auto">авто</span>
+          </div>
+          <div id="statGrid" class="grid grid-cols-2 gap-3 sm:grid-cols-3"></div>
+        </div>
+
+        <div>
+          <div class="mb-3 flex items-center gap-2">
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Выводы и риски</h2>
+            <span class="chip chip--auto">авто</span>
+          </div>
+          <div id="insights" class="space-y-2.5"></div>
+        </div>
+
+        <details class="card auto-card overflow-hidden">
+          <summary class="flex items-center gap-3 p-4 text-sm font-bold">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-500/10 to-slate-500/20 text-base">📋</span>
+            <span class="flex-1">Полная детализация расчёта</span>
+            <span class="chip chip--auto shrink-0">авто</span>
+            <svg class="chev h-4 w-4 shrink-0 text-slate-400 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          </summary>
+          <div id="detailsBody" class="border-t border-slate-100 px-4 py-3 dark:border-slate-800"></div>
+        </details>
+      </section>
+    </div>
+
+    <!-- ГРАФИКИ -->
+    <section class="space-y-4">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Визуализация</h2>
+        <span class="chip chip--auto">авто</span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+
+        <div class="card auto-card p-4 xl:col-span-2">
+          <div class="mb-3">
+            <h3 class="text-sm font-bold">Путь от квартир к чистой прибыли</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Как номинальная стоимость квартир превращается в деньги на счёте</p>
+          </div>
+          <div class="h-[340px] sm:h-[380px]"><canvas id="chartWaterfall"></canvas></div>
+        </div>
+
+        <div class="card auto-card p-4">
+          <div class="mb-3">
+            <h3 class="text-sm font-bold">Куда уходит стоимость квартир</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Структура затрат, потерь и прибыли</p>
+          </div>
+          <div class="h-[300px]"><canvas id="chartDoughnut"></canvas></div>
+        </div>
+
+        <div class="card auto-card p-4">
+          <div class="mb-3">
+            <h3 class="text-sm font-bold">Ключевые суммы сделки</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Сопоставление объёмов поставки, зачёта и результата</p>
+          </div>
+          <div class="h-[300px]"><canvas id="chartBars"></canvas></div>
+        </div>
+
+        <div class="card auto-card p-4">
+          <div class="mb-3">
+            <h3 class="text-sm font-bold">Влияние срока продажи</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Чем дольше квартиры не проданы, тем дороже заморозка денег</p>
+          </div>
+          <div class="h-[300px]"><canvas id="chartTerm"></canvas></div>
+        </div>
+
+        <div class="card auto-card p-4">
+          <div class="mb-3">
+            <h3 class="text-sm font-bold">Чувствительность к скидке при продаже</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Как дисконт рынку влияет на итоговую прибыль</p>
+          </div>
+          <div class="h-[300px]"><canvas id="chartSens"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="pb-4 pt-2 text-center text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+      Расчёты в тенге (KZT). Налоговая модель Республики Казахстан: НДС 16 %, КПН 20 %.
+      Учитываются производственная себестоимость, дисконт при продаже квартир, альтернативная
+      доходность капитала и фактор времени. Расчёт является оценочным и не заменяет финансовое заключение.
+    </footer>
+  </main>
+
+  <!-- ============================== МОДАЛКА «ПОКАЗАТЬ НА ТЕЛЕФОНЕ» ============================== -->
+  <div id="shareModal" class="no-print fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+    <div class="card max-h-[90vh] w-full max-w-sm overflow-y-auto p-5">
+      <div class="mb-4 flex items-center gap-2">
+        <h2 id="shareTitle" class="text-base font-bold">Открыть на телефоне</h2>
+        <button id="shareClose" type="button" aria-label="Закрыть"
+                class="ml-auto grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-400 dark:hover:text-rose-400">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="h-4 w-4"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <div class="mx-auto grid h-[220px] w-[220px] place-items-center rounded-2xl bg-white p-2 shadow-inner ring-1 ring-slate-200">
+        <div id="qrBox" class="h-full w-full"></div>
+      </div>
+
+      <p id="shareCaption" class="mt-3 text-center text-[12px] font-medium text-slate-500 dark:text-slate-400">
+        Наведите камеру телефона на код
+      </p>
+
+      <div class="mt-3 flex gap-2">
+        <input id="shareUrl" type="text" readonly class="input-base min-w-0 flex-1 text-[13px]" />
+        <button id="shareCopy" type="button"
+                class="shrink-0 rounded-xl bg-brand-600 px-3.5 text-[13px] font-bold text-white transition hover:bg-brand-700">Копировать</button>
+      </div>
+
+      <p id="shareHint" class="mt-3 text-[11px] leading-snug text-slate-400 dark:text-slate-500"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
