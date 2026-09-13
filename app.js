@@ -266,7 +266,7 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function fieldHTML(f) {
   if (f.type === 'checkbox') {
     return `
-      <label class="col-span-2 flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-300 bg-white px-2.5 py-2 transition hover:border-brand-400 dark:border-slate-700 dark:bg-[#0a1120]">
+      <label class="sm:col-span-2 flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-300 bg-white px-2.5 py-2 transition hover:border-brand-400 dark:border-slate-700 dark:bg-[#0a1120]">
         <input type="checkbox" data-field="${f.key}" ${state[f.key] ? 'checked' : ''} class="mt-0.5 shrink-0" />
         <span class="min-w-0">
           <span class="block text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">${f.label}</span>
@@ -276,7 +276,7 @@ function fieldHTML(f) {
   }
   const caption = f.unit ? `${f.label}, ${f.unit}` : f.label;
   return `
-    <label class="block${f.full ? ' col-span-2' : ''}">
+    <label class="block${f.full ? ' sm:col-span-2' : ''}">
       <span class="flex flex-col gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 transition hover:border-brand-400 sm:flex-row sm:items-center sm:gap-2.5 dark:border-slate-700 dark:bg-[#0a1120]">
         <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium text-slate-600 dark:text-slate-300" title="${caption}">${caption}</span>
         <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
