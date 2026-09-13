@@ -277,10 +277,10 @@ function fieldHTML(f) {
   const caption = f.unit ? `${f.label}, ${f.unit}` : f.label;
   return `
     <label class="block${f.full ? ' sm:col-span-2' : ''}">
-      <span class="flex flex-col gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 transition hover:border-brand-400 sm:flex-row sm:items-center sm:gap-2.5 dark:border-slate-700 dark:bg-[#0a1120]">
-        <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium text-slate-600 dark:text-slate-300" title="${caption}">${caption}</span>
+      <span class="flex items-center gap-2.5 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 transition hover:border-brand-400 dark:border-slate-700 dark:bg-[#0a1120]">
+        <span class="min-w-0 flex-1 text-[12.5px] font-medium leading-tight text-slate-600 sm:truncate dark:text-slate-300" title="${caption}">${caption}</span>
         <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
-               data-field="${f.key}" value="${fmtInput(state[f.key])}" class="input-base h-12 w-full px-2 text-right sm:h-10 sm:w-28" />
+               data-field="${f.key}" value="${fmtInput(state[f.key])}" class="input-base h-12 w-24 shrink-0 px-2 text-right sm:h-10 sm:w-28" />
       </span>
     </label>`;
 }
