@@ -2,51 +2,63 @@
 
 /* ============================================================================
  *  Бартер-дашборд: поставка минеральной ваты ⇄ квартиры застройщика
- *  Финансовая логика — согласно CLAUDE.md
+ *  Три экрана: 1) Показатели  2) Исходные данные  3) Факт
  * ========================================================================== */
 
-const STORAGE_KEY = 'barter.dashboard.v2';   // v2: переход на тенге, НДС 16 %, КПН 20 %
+const STORAGE_KEY = 'barter.dashboard.v3';   // v3: три экрана, зачёт в м², годовая доходность
 const THEME_KEY = 'barter.theme';
+const SCREEN_KEY = 'barter.screen';
 
 /* ------------------------------ Регион: Казахстан ------------------------- */
 const CURRENCY = '₸';      // тенге (KZT)
 const PER_M3 = ' ₸/м³';
+const PER_M2 = ' ₸/м²';
 const VAT_RATE_DEFAULT = 16;   // стандартная ставка НДС в Республике Казахстан
 const CIT_RATE_DEFAULT = 20;   // корпоративный подоходный налог (КПН)
+const MONTHS_MAX = 24;         // верхняя граница срока продажи квартир, мес
 
 /* ------------------------------- Значения по умолчанию -------------------- */
 const DEFAULTS = {
-  /* Производство */
-  volume: 1000,
-  pricePerM3: 24000,
-  vatRate: VAT_RATE_DEFAULT,
-  /* Себестоимость (на 1 м³) */
+  /* Экран 1 — параметры сделки */
+  volume: 1000,          // м³ ваты в поставке
+  areaM2: 62745,         // м² квартир к зачёту (пересчитывается от объёма)
+  areaDriven: false,     // true — последним меняли метры, а не объём
+  saleMonths: 12,        // срок продажи квартир, мес
+  /* Экран 2 — завод */
+  pricePerM3: 24000,     // базовая (прайсовая) цена ваты, ₸/м³ без НДС
   rawPerM3: 8500,
   salaryPerM3: 4000,
   insuranceRate: 12,
   energyPerM3: 2400,
   overheadPerM3: 1800,
-  /* Квартиры */
-  apartmentsCount: 1,
-  apartmentPrice: 32800000,
-  developerDiscount: 15,
-  /* Продажа квартир */
+  inputVat: 0,           // НДС к вычету, ₸
+  /* Экран 2 — застройщик */
+  pricePerM2: 450000,    // розничная цена 1 м² квартиры, ₸/м²
+  developerDiscount: 15, // скидка по договору, %
+  /* Экран 2 — продажа квартир */
   quickSaleDiscount: 8,
   realtorFee: 2,
   otherExpenses: 1,
-  /* Время и деньги */
-  saleMonths: 12,
-  monthlyReturn: 1.5,
-  /* Налоги */
+  /* Экран 2 — общие */
+  vatRate: VAT_RATE_DEFAULT,
+  vatEnabled: true,
   profitTaxRate: CIT_RATE_DEFAULT,
-  vatPayableOn: false,
-  inputVat: 0
+  annualReturn: 18,      // альтернативная доходность, % годовых
+  /* Экран 3 — факт */
+  factRevenue: 0,
+  factQuickSaleLoss: 0,
+  factRealtorFee: 0,
+  factOtherExpenses: 0,
+  factVat: 0,
+  factTimeLoss: 0,
+  factCost: 0,
+  factCit: 0
 };
 
 const PRESETS = {
-  cautious: { developerDiscount: 25, quickSaleDiscount: 15, realtorFee: 3, otherExpenses: 2, saleMonths: 18, monthlyReturn: 2 },
+  cautious: { developerDiscount: 25, quickSaleDiscount: 15, realtorFee: 3, otherExpenses: 2, saleMonths: 18, annualReturn: 24 },
   base: {},
-  optimistic: { developerDiscount: 10, quickSaleDiscount: 5, realtorFee: 1.5, otherExpenses: 0.5, saleMonths: 6, monthlyReturn: 1 }
+  optimistic: { developerDiscount: 10, quickSaleDiscount: 5, realtorFee: 1.5, otherExpenses: 0.5, saleMonths: 6, annualReturn: 12 }
 };
 
 /* ------------------------------- Схема формы ------------------------------ */
@@ -54,25 +66,28 @@ const money = (v) => nf0.format(Math.round(v || 0)) + ' ' + CURRENCY;
 
 const SECTIONS = [
   {
-    id: 'production', icon: '🏭', title: 'Производство ваты', desc: 'Объём и стоимость поставки',
+    id: 'general', icon: '⚖️', title: 'Общие', desc: 'Налоги и стоимость денег',
     fields: [
-      { key: 'volume', label: 'Объём поставки', unit: 'м³', min: 0, hint: 'Сколько кубометров ваты уходит в сделку' },
-      { key: 'pricePerM3', label: 'Базовая цена ваты (без НДС)', unit: '₸/м³', min: 0, hint: 'Прайсовая цена завода, тенге за м³' },
-      { key: 'vatRate', label: 'Ставка НДС', unit: '%', min: 0, max: 100, hint: 'Стандартная ставка НДС в Казахстане — 16 %' }
+      { key: 'vatRate', label: 'Ставка НДС', unit: '%', min: 0, max: 100 },
+      { key: 'profitTaxRate', label: 'КПН (налог на прибыль)', unit: '%', min: 0, max: 100 },
+      { key: 'annualReturn', label: 'Доходность альтернативы', unit: '% в год', min: 0, max: 100, full: true },
+      { key: 'vatEnabled', type: 'checkbox', label: 'Использовать НДС в расчётах', hint: 'НДС берётся от выручки: выручка × ставка / (100 + ставка)' }
     ],
     summary: (m) => [
-      ['Поставка без НДС', money(m.deliveryNet)],
-      ['Поставка с НДС', money(m.deliveryGross)]
+      ['НДС к уплате', money(m.vatPayable)],
+      ['КПН к уплате', money(m.profitTax)]
     ]
   },
   {
-    id: 'cost', icon: '⚙️', title: 'Себестоимость', desc: 'Производственные затраты на 1 м³',
+    id: 'plant', icon: '🏭', title: 'Завод', desc: 'Цена ваты и себестоимость 1 м³',
     fields: [
+      { key: 'pricePerM3', label: 'Базовая цена ваты по прайсу', unit: '₸/м³', min: 0, full: true },
       { key: 'rawPerM3', label: 'Сырьё', unit: '₸/м³', min: 0 },
       { key: 'salaryPerM3', label: 'ФОТ (зарплата)', unit: '₸/м³', min: 0 },
-      { key: 'insuranceRate', label: 'Соцплатежи работодателя', unit: '% от ФОТ', min: 0, max: 100, hint: 'Соцналог, ОПВ/ОСМС/СО — ориентировочно 11–14 % в Казахстане' },
+      { key: 'insuranceRate', label: 'Соцплатежи', unit: '% от ФОТ', min: 0, max: 100 },
       { key: 'energyPerM3', label: 'Энергия', unit: '₸/м³', min: 0 },
-      { key: 'overheadPerM3', label: 'Накладные расходы', unit: '₸/м³', min: 0 }
+      { key: 'overheadPerM3', label: 'Накладные', unit: '₸/м³', min: 0 },
+      { key: 'inputVat', label: 'НДС к вычету', unit: '₸', min: 0 }
     ],
     summary: (m) => [
       ['Себестоимость 1 м³', money(m.unitCost)],
@@ -80,51 +95,26 @@ const SECTIONS = [
     ]
   },
   {
-    id: 'apartments', icon: '🏙️', title: 'Квартиры от застройщика', desc: 'Что завод получает в обмен',
+    id: 'developer', icon: '🏙️', title: 'Застройщик', desc: 'Цена квартир и скидка по договору',
     fields: [
-      { key: 'apartmentsCount', label: 'Количество квартир', unit: 'шт', min: 0, hint: 'Сколько объектов передаёт застройщик' },
-      { key: 'apartmentPrice', label: 'Средняя розничная стоимость', unit: '₸', min: 0 },
-      { key: 'developerDiscount', label: 'Скидка застройщика', unit: '%', min: 0, max: 100, hint: 'Уступка от розничной цены при зачёте' }
+      { key: 'pricePerM2', label: 'Цена 1 м² (розница)', unit: '₸/м²', min: 0 },
+      { key: 'developerDiscount', label: 'Скидка застройщика', unit: '%', min: 0, max: 100 }
     ],
     summary: (m) => [
-      ['Номинал квартир', money(m.retailTotal)],
-      ['Цена зачёта', money(m.offsetPrice)],
-      ['Баланс взаимозачёта', money(m.balance)]
+      ['Цена зачёта 1 м²', money(m.priceM2Offset)],
+      ['Кв. м к зачёту', nf1.format(m.areaM2) + ' м²']
     ]
   },
   {
-    id: 'sale', icon: '💸', title: 'Продажа квартир', desc: 'Монетизация полученных объектов',
+    id: 'sale', icon: '💸', title: 'Продажа квартир', desc: 'Издержки монетизации объектов',
     fields: [
-      { key: 'quickSaleDiscount', label: 'Скидка для быстрой продажи', unit: '%', min: 0, max: 100, hint: 'Дисконт рынку, чтобы продать объект быстро' },
-      { key: 'realtorFee', label: 'Комиссия риелтора', unit: '% от розницы', min: 0, max: 100 },
-      { key: 'otherExpenses', label: 'Прочие расходы', unit: '% от розницы', min: 0, max: 100, hint: 'Оформление, содержание, налог на имущество' }
+      { key: 'quickSaleDiscount', label: 'Скидка быстрой продажи', unit: '%', min: 0, max: 100 },
+      { key: 'realtorFee', label: 'Комиссия риелтора', unit: '%', min: 0, max: 100 },
+      { key: 'otherExpenses', label: 'Прочие расходы', unit: '%', min: 0, max: 100 }
     ],
     summary: (m) => [
-      ['Кэш при продаже сегодня', money(m.cashNominal)],
-      ['Издержки продажи', money(m.saleCosts)]
-    ]
-  },
-  {
-    id: 'time', icon: '⏳', title: 'Время и деньги', desc: 'Стоимость заморозки капитала',
-    fields: [
-      { key: 'saleMonths', label: 'Срок продажи квартир', unit: 'мес', min: 0, max: 120 },
-      { key: 'monthlyReturn', label: 'Альтернативная доходность', unit: '% в месяц', min: 0, max: 50, hint: 'Куда можно вложить деньги вместо заморозки' }
-    ],
-    summary: (m) => [
-      ['Приведённый кэш', money(m.discountedCash)],
-      ['Потери от заморозки', money(m.timeLoss)]
-    ]
-  },
-  {
-    id: 'taxes', icon: '🧾', title: 'Налоги и НДС', desc: 'Обязательства перед бюджетом РК',
-    fields: [
-      { key: 'profitTaxRate', label: 'КПН (корпоративный подоходный налог)', unit: '%', min: 0, max: 100, hint: 'Базовая ставка КПН в Казахстане — 20 %' },
-      { key: 'vatPayableOn', type: 'checkbox', label: 'Учитывать НДС к уплате', hint: 'В бартере НДС с поставки платится деньгами, если его не перекладывают на покупателя' },
-      { key: 'inputVat', label: 'НДС к вычету (входящий)', unit: '₸', min: 0, hint: 'НДС по сырью, энергии и полученным квартирам' }
-    ],
-    summary: (m) => [
-      ['КПН к уплате', money(m.profitTax)],
-      ['НДС к уплате', money(m.vatPayable)]
+      ['Издержки продажи', money(m.saleCosts)],
+      ['Выручка от продажи', money(m.revenue)]
     ]
   }
 ];
@@ -138,7 +128,34 @@ const nfShort = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFra
 const fmtShort = (v) => nfShort.format(v || 0) + ' ' + CURRENCY;
 const pct = (frac, d = 1) => (isFinite(frac) ? (frac * 100).toFixed(d).replace('.', ',') : '0,0') + '%';
 const signedPct = (frac, d = 1) => (frac >= 0 ? '+' : '−') + Math.abs(frac * 100).toFixed(d).replace('.', ',') + '%';
+const signedMoney = (v) => (v >= 0 ? '+' : '−') + nf0.format(Math.round(Math.abs(v || 0))) + ' ' + CURRENCY;
 const fmtInput = (v) => nf2.format(typeof v === 'number' ? v : 0);
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+const round2 = (v) => Math.round(v * 100) / 100;
+
+/* Связка «объём ваты ⇄ метры квартир к зачёту».
+ * Баланс взаимозачёта равен нулю по построению:
+ *   объём × прайс ваты = метры × цена метра × (1 − скидка застройщика)
+ * Ввод в любое из двух полей пересчитывает второе. */
+function areaFromVolume(volume, s) {
+  const denom = Math.max(0, num(s.pricePerM2)) * (1 - clamp(num(s.developerDiscount), 0, 99.9) / 100);
+  return denom > 0 ? (Math.max(0, num(volume)) * Math.max(0, num(s.pricePerM3))) / denom : 0;
+}
+
+function volumeFromArea(area, s) {
+  const price = Math.max(0, num(s.pricePerM3));
+  const numen = Math.max(0, num(area)) * Math.max(0, num(s.pricePerM2)) * (1 - clamp(num(s.developerDiscount), 0, 99.9) / 100);
+  return price > 0 ? numen / price : 0;
+}
+
+/* Пересчитывает зависимую сторону сделки (ту, которую пользователь не трогал) */
+function syncDeal() {
+  if (state.areaDriven) {
+    state.volume = round2(volumeFromArea(num(state.areaM2), state));
+  } else {
+    state.areaM2 = round2(areaFromVolume(num(state.volume), state));
+  }
+}
 
 /* ------------------------------- Состояние -------------------------------- */
 function loadState() {
@@ -175,14 +192,16 @@ function scheduleSave() {
  *  ФИНАНСОВАЯ МОДЕЛЬ
  * ========================================================================== */
 function calc(s) {
-  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
-
-  /* 1. Поставка ваты */
+  /* 1. Взаимозачёт: объём ваты по прайсу ⇄ метры квартир со скидкой застройщика */
   const volume = Math.max(0, num(s.volume));
   const price = Math.max(0, num(s.pricePerM3));
-  const deliveryNet = volume * price;                                  // без НДС
-  const vatOut = deliveryNet * Math.max(0, num(s.vatRate)) / 100;      // исходящий НДС
-  const deliveryGross = deliveryNet + vatOut;                          // с НДС
+  const priceM2 = Math.max(0, num(s.pricePerM2));
+  const devDiscount = clamp(num(s.developerDiscount), 0, 100) / 100;
+  const dealSum = volume * price;                                                 // сумма сделки, без НДС
+  const retailTotal = devDiscount < 1 ? dealSum / (1 - devDiscount) : dealSum;    // номинал квартир
+  const developerDiscountSum = retailTotal - dealSum;
+  const areaM2 = priceM2 > 0 ? retailTotal / priceM2 : 0;
+  const priceM2Offset = priceM2 * (1 - devDiscount);
 
   /* 2. Производственная себестоимость */
   const unitCost =
@@ -192,13 +211,7 @@ function calc(s) {
     Math.max(0, num(s.overheadPerM3));
   const costTotal = unitCost * volume;
 
-  /* 3. Квартирный зачёт */
-  const retailTotal = Math.max(0, num(s.apartmentsCount)) * Math.max(0, num(s.apartmentPrice));
-  const offsetPrice = retailTotal * (1 - clamp(num(s.developerDiscount), 0, 100) / 100);
-  const balance = deliveryGross - offsetPrice;
-  const balanceShare = deliveryGross > 0 ? balance / deliveryGross : 0;
-
-  /* 4. Монетизация квартир */
+  /* 3. Монетизация квартир */
   const q = clamp(num(s.quickSaleDiscount), 0, 100) / 100;
   const c = clamp(num(s.realtorFee), 0, 100) / 100;
   const o = clamp(num(s.otherExpenses), 0, 100) / 100;
@@ -206,35 +219,41 @@ function calc(s) {
   const realtorCost = retailTotal * c;
   const otherCost = retailTotal * o;
   const saleCosts = quickSaleLoss + realtorCost + otherCost;
-  const cashNominal = retailTotal - saleCosts;
+  const revenue = retailTotal - saleCosts;                                        // выручка от продажи
 
-  /* 5. Фактор времени (сложный процент) */
+  /* 4. НДС: выделяется из выручки и уменьшается на входящий НДС */
+  const vatEnabled = !!s.vatEnabled;
+  const vatRate = vatEnabled ? Math.max(0, num(s.vatRate)) : 0;
+  const vatPayable = vatEnabled
+    ? Math.max(0, revenue * vatRate / (100 + vatRate) - Math.max(0, num(s.inputVat)))
+    : 0;
+  const cashNet = revenue - vatPayable;                                           // чистый кэш до заморозки
+
+  /* 5. Фактор времени */
   const months = Math.max(0, num(s.saleMonths));
-  const monthlyRate = Math.max(0, num(s.monthlyReturn)) / 100;
-  const factor = Math.pow(1 + monthlyRate, months);
-  const discountedCash = factor > 0 ? cashNominal / factor : cashNominal;
-  const timeLoss = cashNominal - discountedCash;
-  const annualEquivalent = (Math.pow(1 + monthlyRate, 12) - 1);
+  const annualRate = Math.max(0, num(s.annualReturn)) / 100;
+  const factor = Math.pow(1 + annualRate, months / 12);
+  const discountedCash = factor > 0 ? cashNet / factor : cashNet;
+  const timeLoss = cashNet - discountedCash;
 
   /* 6. Налоги */
-  const vatPayable = s.vatPayableOn ? Math.max(0, vatOut - Math.max(0, num(s.inputVat))) : 0;
-  const taxableProfit = deliveryNet - costTotal;
-  const profitTax = Math.max(0, taxableProfit) * Math.max(0, num(s.profitTaxRate)) / 100;
+  const profitBeforeTax = discountedCash - costTotal;
+  const profitTax = Math.max(0, profitBeforeTax) * Math.max(0, num(s.profitTaxRate)) / 100;
 
   /* 7. Итоги */
-  const netProfit = discountedCash - costTotal - profitTax - vatPayable;
+  const netProfit = profitBeforeTax - profitTax;
   const roi = costTotal > 0 ? netProfit / costTotal : 0;
   const effectivePrice = volume > 0 ? (netProfit + costTotal) / volume : 0;
   const priceDelta = price > 0 ? effectivePrice / price - 1 : 0;
-  const margin = discountedCash > 0 ? netProfit / discountedCash : 0;
+  const margin = revenue > 0 ? netProfit / revenue : 0;
 
   return {
-    volume, price, deliveryNet, vatOut, deliveryGross,
+    volume, price, priceM2, dealSum, retailTotal, developerDiscountSum, areaM2, priceM2Offset,
     unitCost, costTotal,
-    retailTotal, offsetPrice, balance, balanceShare, developerDiscountPct: num(s.developerDiscount),
-    q, c, o, quickSaleLoss, realtorCost, otherCost, saleCosts, cashNominal,
-    months, monthlyRate, annualEquivalent, factor, discountedCash, timeLoss,
-    vatPayable, taxableProfit, profitTax,
+    q, c, o, quickSaleLoss, realtorCost, otherCost, saleCosts, revenue,
+    vatEnabled, vatRate, vatPayable, cashNet,
+    months, annualRate, factor, discountedCash, timeLoss,
+    profitBeforeTax, profitTax,
     netProfit, roi, effectivePrice, priceDelta, margin
   };
 }
@@ -247,48 +266,40 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function fieldHTML(f) {
   if (f.type === 'checkbox') {
     return `
-      <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-300 bg-white p-3 transition hover:border-brand-400 dark:border-slate-700 dark:bg-[#0a1120]">
+      <label class="col-span-2 flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-300 bg-white px-2.5 py-2 transition hover:border-brand-400 dark:border-slate-700 dark:bg-[#0a1120]">
         <input type="checkbox" data-field="${f.key}" ${state[f.key] ? 'checked' : ''} class="mt-0.5 shrink-0" />
         <span class="min-w-0">
-          <span class="block text-[13px] font-semibold text-slate-700 dark:text-slate-200">${f.label}</span>
-          ${f.hint ? `<span class="mt-0.5 block text-[11px] leading-snug text-slate-400 dark:text-slate-500">${f.hint}</span>` : ''}
+          <span class="block text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">${f.label}</span>
+          ${f.hint ? `<span class="mt-0.5 block text-[10.5px] leading-snug text-slate-400 dark:text-slate-500">${f.hint}</span>` : ''}
         </span>
       </label>`;
   }
+  const caption = f.unit ? `${f.label}, ${f.unit}` : f.label;
   return `
-    <label class="block">
-      <span class="mb-1.5 flex items-baseline justify-between gap-2">
-        <span class="text-[13px] font-medium text-slate-600 dark:text-slate-300">${f.label}</span>
-        ${f.unit ? `<span class="shrink-0 text-[11px] font-semibold text-brand-600 dark:text-brand-400">${f.unit}</span>` : ''}
+    <label class="block${f.full ? ' col-span-2' : ''}">
+      <span class="flex flex-col gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 transition hover:border-brand-400 sm:flex-row sm:items-center sm:gap-2.5 dark:border-slate-700 dark:bg-[#0a1120]">
+        <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium text-slate-600 dark:text-slate-300" title="${caption}">${caption}</span>
+        <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
+               data-field="${f.key}" value="${fmtInput(state[f.key])}" class="input-base h-12 w-full px-2 text-right sm:h-10 sm:w-28" />
       </span>
-      <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
-             data-field="${f.key}" value="${fmtInput(state[f.key])}" class="input-base" />
-      ${f.hint ? `<span class="mt-1.5 block text-[11px] leading-snug text-slate-400 dark:text-slate-500">${f.hint}</span>` : ''}
     </label>`;
 }
 
 function renderInputs() {
   document.getElementById('inputSections').innerHTML = SECTIONS.map((sec) => `
     <details class="card input-card overflow-hidden" open>
-      <summary class="flex items-center gap-3 p-4">
-        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500/10 to-indigo-500/10 text-base dark:from-brand-500/20 dark:to-indigo-500/20">${sec.icon}</span>
-        <span class="min-w-0 flex-1">
-          <span class="flex items-center gap-1.5">
-            <span class="truncate text-sm font-bold leading-tight">${sec.title}</span>
-            <span class="chip chip--input shrink-0">ввод</span>
-          </span>
-          <span class="mt-0.5 block truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400">${sec.desc}</span>
-        </span>
+      <summary class="flex items-center gap-2 px-3 py-2">
+        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500/10 to-indigo-500/10 text-[14px] dark:from-brand-500/20 dark:to-indigo-500/20">${sec.icon}</span>
+        <span class="min-w-0 shrink-0 text-[13px] font-bold leading-tight">${sec.title}</span>
+        <span class="chip chip--input shrink-0">ввод</span>
+        <span class="hidden min-w-0 flex-1 truncate text-[10.5px] leading-tight text-slate-500 dark:text-slate-400 sm:block">${sec.desc}</span>
         <svg class="chev h-4 w-4 shrink-0 text-slate-400 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </summary>
-      <div class="space-y-3.5 border-t border-slate-100 px-4 pb-4 pt-4 dark:border-slate-800">
-        ${sec.fields.map(fieldHTML).join('')}
-        <div class="calc-panel">
-          <p class="mb-2 flex flex-wrap items-center gap-1.5">
-            <span class="chip chip--auto">авто</span>
-            <span class="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">рассчитывается автоматически</span>
-          </p>
-          <div data-summary="${sec.id}" class="grid grid-cols-2 gap-x-3 gap-y-2"></div>
+      <div class="border-t border-slate-100 px-3 pb-3 pt-2.5 dark:border-slate-800">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">${sec.fields.map(fieldHTML).join('')}</div>
+        <div class="calc-panel mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span class="chip chip--auto shrink-0">авто</span>
+          <div data-summary="${sec.id}" class="flex flex-wrap items-center gap-x-4 gap-y-1"></div>
         </div>
       </div>
     </details>`).join('');
@@ -298,6 +309,7 @@ function refreshInputValues() {
   document.querySelectorAll('[data-field]').forEach((el) => {
     const key = el.dataset.field;
     if (el.type === 'checkbox') el.checked = !!state[key];
+    else if (el.hasAttribute('data-zero-empty') && !num(state[key])) el.value = '';
     else el.value = fmtInput(state[key]);
   });
 }
@@ -317,14 +329,14 @@ function toneClasses(tone) {
 function heroCard({ label, value, sub, tone = 'default', icon }) {
   const t = toneClasses(tone);
   return `
-    <div class="card auto-card flex flex-col p-3.5 sm:p-4">
-      <div class="mb-1.5 flex items-center gap-2">
-        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[13px] ${t.chip}">${icon}</span>
-        <span class="chip chip--auto ml-auto shrink-0">авто</span>
+    <div class="card auto-card flex flex-col p-3">
+      <div class="flex items-center gap-2">
+        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-[12px] ${t.chip}">${icon}</span>
+        <p class="min-w-0 flex-1 text-[10.5px] font-bold uppercase leading-tight tracking-wide text-slate-500 dark:text-slate-400">${label}</p>
+        <span class="chip chip--auto shrink-0">авто</span>
       </div>
-      <p class="text-[10.5px] font-bold uppercase leading-tight tracking-wide text-slate-500 dark:text-slate-400 sm:text-[11px]">${label}</p>
-      <p class="tabular mt-1 truncate text-xl font-extrabold leading-tight sm:text-2xl ${t.text}" title="${value}">${value}</p>
-      <p class="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">${sub}</p>
+      <p class="tabular mt-1 truncate text-lg font-extrabold leading-tight sm:text-xl ${t.text}" title="${value}">${value}</p>
+      <p class="mt-0.5 text-[10.5px] leading-snug text-slate-500 dark:text-slate-400">${sub}</p>
     </div>`;
 }
 
@@ -361,171 +373,50 @@ function renderHero(m) {
   ].join('');
 }
 
-function renderVerdict(m) {
-  const good = m.netProfit > 0 && m.roi > 0.15;
-  const tight = m.netProfit > 0 && m.roi <= 0.15;
-  const bad = m.netProfit <= 0;
-
-  const cfg = good
-    ? { tone: 'good', icon: '✅', title: 'Сделка экономически выгодна', text: `Завод получает ${money(m.netProfit)} чистой прибыли — это ${pct(m.roi)} доходности на вложенную себестоимость.` }
-    : tight
-      ? { tone: 'warn', icon: '⚠️', title: 'Сделка на грани: прибыль есть, но запас маленький', text: `Чистая прибыль ${money(m.netProfit)} (ROI ${pct(m.roi)}). Любой рост скидок или задержка продажи уведут сделку в минус.` }
-      : { tone: 'bad', icon: '⛔', title: 'Сделка убыточна в текущих параметрах', text: `Убыток ${money(Math.abs(m.netProfit))}. Требуется изменить скидку застройщика, срок продажи или цены.` };
-
-  const t = toneClasses(cfg.tone);
-  document.getElementById('verdictWrap').innerHTML = `
-    <div class="card auto-card animate-fade-up flex items-start gap-3 p-4 sm:items-center">
-      <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl ${t.chip}">${cfg.icon}</span>
-      <div class="min-w-0 flex-1">
-        <p class="text-sm font-extrabold leading-tight sm:text-base ${t.text}">${cfg.title}</p>
-        <p class="mt-0.5 text-[12.5px] leading-snug text-slate-500 dark:text-slate-400">${cfg.text}</p>
-      </div>
-      <span class="chip chip--auto hidden shrink-0 sm:inline-flex">авто</span>
-    </div>`;
-}
-
-function statTile(label, value, tone = 'default', sub = '') {
-  const t = toneClasses(tone);
-  return `
-    <div class="card auto-card p-3">
-      <p class="text-[10.5px] font-bold uppercase leading-tight tracking-wide text-slate-500 dark:text-slate-400">${label}</p>
-      <p class="tabular mt-1 truncate text-[15px] font-bold ${t.text}" title="${value}">${value}</p>
-      ${sub ? `<p class="mt-0.5 text-[10.5px] leading-tight text-slate-400 dark:text-slate-500">${sub}</p>` : ''}
-    </div>`;
-}
-
-function renderStats(m) {
-  const balanceTone = Math.abs(m.balanceShare) <= 0.02 ? 'good' : Math.abs(m.balanceShare) <= 0.1 ? 'warn' : 'bad';
-  const balanceArrow = Math.abs(m.balanceShare) <= 0.02 ? '' : m.balance > 0 ? ' ↗' : ' ↘';
-  const balanceSub = Math.abs(m.balanceShare) <= 0.02
-    ? 'баланс сходится'
-    : m.balance > 0 ? 'застройщик должен доплатить' : 'завод должен доплатить';
-
-  document.getElementById('statGrid').innerHTML = [
-    statTile('Стоимость поставки с НДС', money(m.deliveryGross), 'default', 'без НДС ' + money(m.deliveryNet)),
-    statTile('Себестоимость ваты', money(m.costTotal), 'default', nf0.format(Math.round(m.unitCost)) + PER_M3),
-    statTile('Цена зачёта квартир', money(m.offsetPrice), 'default', 'номинал ' + money(m.retailTotal)),
-    statTile('Баланс взаимозачёта', money(Math.abs(m.balance)) + balanceArrow, balanceTone, balanceSub),
-    statTile('Кэш при продаже сегодня', money(m.cashNominal), 'default', 'издержки ' + money(m.saleCosts)),
-    statTile('Потери от заморозки', money(m.timeLoss), m.timeLoss > m.cashNominal * 0.12 ? 'bad' : 'warn', 'срок ' + nf1.format(m.months) + ' мес'),
-    statTile('Приведённый кэш', money(m.discountedCash), 'default', 'реальные деньги'),
-    statTile('КПН (налог на прибыль)', money(m.profitTax), m.profitTax > 0 ? 'warn' : 'default', 'база ' + money(Math.max(0, m.taxableProfit))),
-    statTile('НДС к уплате', money(m.vatPayable), m.vatPayable > 0 ? 'warn' : 'good', m.vatPayable > 0 ? 'исходящий ' + money(m.vatOut) : 'переложен на покупателя'),
-    statTile('Маржа по кэшу', pct(m.margin), m.margin > 0.15 ? 'good' : m.margin > 0 ? 'warn' : 'bad', 'от приведённого кэша'),
-    statTile('Потери на времени', pct(m.cashNominal > 0 ? m.timeLoss / m.cashNominal : 0), 'warn', 'от суммы продажи'),
-    statTile('Доходность альтернативы', pct(m.annualEquivalent), 'default', 'эквивалент в год')
-  ].join('');
-}
-
 function renderSectionSummaries(m) {
   SECTIONS.forEach((sec) => {
     const host = document.querySelector(`[data-summary="${sec.id}"]`);
     if (!host || !sec.summary) return;
     host.innerHTML = sec.summary(m).map(([label, value]) => `
-      <div class="min-w-0">
-        <p class="text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-400 dark:text-slate-500">${label}</p>
-        <p class="tabular truncate text-[12.5px] font-bold text-slate-700 dark:text-slate-200" title="${value}">${value}</p>
+      <div class="flex flex-wrap items-baseline gap-x-1.5">
+        <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">${label}</span>
+        <span class="tabular text-[12px] font-bold text-slate-700 dark:text-slate-200">${value}</span>
       </div>`).join('');
   });
 }
 
-function renderInsights(m) {
-  const items = [];
-
-  /* Вердикт по балансу взаимозачёта */
-  if (Math.abs(m.balanceShare) > 0.02) {
-    items.push(m.balance > 0
-      ? { tone: 'warn', icon: '⚖️', title: 'Баланс взаимозачёта не сходится', text: `Завод поставляет ваты на ${money(m.deliveryGross)}, а квартир получает на ${money(m.offsetPrice)}. Разница ${money(m.balance)} — застройщик должен доплатить деньгами.` }
-      : { tone: 'bad', icon: '⚖️', title: 'Завод доплачивает застройщику', text: `Квартиры дороже поставки на ${money(Math.abs(m.balance))} (${pct(Math.abs(m.balanceShare))}). Нужно либо увеличить объём ваты, либо просить вторую квартиру/доплату.` });
-  } else {
-    items.push({ tone: 'good', icon: '⚖️', title: 'Баланс взаимозачёта сходится', text: `Расхождение всего ${money(Math.abs(m.balance))} (${pct(Math.abs(m.balanceShare))}) — стороны обмениваются равноценными активами.` });
+/* ------------------------------- Экран 1: водопад ------------------------- */
+function renderMonths(m) {
+  const range = document.getElementById('monthsRange');
+  const input = document.getElementById('monthsInput');
+  const out = document.getElementById('monthsOut');
+  if (range && document.activeElement !== range) range.value = String(clamp(Math.round(m.months), 0, MONTHS_MAX));
+  if (input && document.activeElement !== input) input.value = String(Math.round(m.months));
+  if (out) {
+    const share = m.cashNet > 0 ? m.timeLoss / m.cashNet : 0;
+    out.textContent = money(m.timeLoss) + (m.months > 0 ? '  ·  ' + pct(share) : '  (продажа сразу)');
   }
-
-  /* Заморозка капитала */
-  if (m.timeLoss > 0) {
-    const share = m.cashNominal > 0 ? m.timeLoss / m.cashNominal : 0;
-    items.push({
-      tone: share > 0.15 ? 'bad' : share > 0.07 ? 'warn' : 'good',
-      icon: '⏳',
-      title: 'Заморозка денег: ' + money(m.timeLoss),
-      text: `За ${nf1.format(m.months)} мес. ожидания при альтернативной доходности ${nf1.format(state.monthlyReturn)}%/мес. теряется ${pct(share)} ожидаемого кэша. Сокращение срока продажи — самый быстрый способ поднять выгоду.`
-    });
-  }
-
-  /* НДС */
-  if (m.vatPayable > 0) {
-    items.push({
-      tone: 'warn', icon: '🧾', title: 'НДС придётся заплатить деньгами',
-      text: `К уплате ${money(m.vatPayable)}. Если удастся переложить НДС на покупателя или зачесть входящий НДС по квартирам, прибыль вырастет ровно на эту сумму.`
-    });
-  } else {
-    items.push({
-      tone: 'info', icon: '🧾', title: 'НДС не уменьшает прибыль',
-      text: 'НДС по поставке перекладывается на покупателя. Если часть налога придётся платить деньгами — включите переключатель в блоке «Налоги и НДС».'
-    });
-  }
-
-  /* Структура издержек продажи */
-  if (m.saleCosts > 0) {
-    items.push({
-      tone: m.saleCosts > m.discountedCash ? 'bad' : 'info',
-      icon: '💸', title: 'Издержки продажи: ' + pct(m.cashNominal > 0 ? m.saleCosts / m.retailTotal : 0),
-      text: `Дисконт ${money(m.quickSaleLoss)}, риелтор ${money(m.realtorCost)}, прочие расходы ${money(m.otherCost)}. Итого ${money(m.saleCosts)} от номинала квартир.`
-    });
-  }
-
-  /* Себестоимость против поставки */
-  if (m.deliveryNet > 0) {
-    const grossMargin = (m.deliveryNet - m.costTotal) / m.deliveryNet;
-    items.push({
-      tone: grossMargin > 0.2 ? 'good' : grossMargin > 0 ? 'warn' : 'bad',
-      icon: '🏭',
-      title: 'Маржа производства ' + pct(grossMargin),
-      text: `Стоимость поставки без НДС ${money(m.deliveryNet)} против себестоимости ${money(m.costTotal)}. Валовая прибыль ${money(m.deliveryNet - m.costTotal)}.`
-    });
-  }
-
-  /* Эффективная цена */
-  if (m.volume > 0 && m.price > 0) {
-    items.push({
-      tone: m.priceDelta >= 0 ? 'good' : 'warn',
-      icon: '🎯',
-      title: 'Эффективная цена ' + nf0.format(Math.round(m.effectivePrice)) + PER_M3,
-      text: m.priceDelta >= 0
-        ? `Это на ${pct(m.priceDelta)} выше прайсовой цены ${money(m.price)} за м³ — бартер выгоднее прямой продажи за деньги.`
-        : `Это на ${pct(Math.abs(m.priceDelta))} ниже прайсовой цены ${money(m.price)} за м³ — фактически завод даёт скидку покупателю.`
-    });
-  }
-
-  document.getElementById('insights').innerHTML = items.map((it) => {
-    const t = toneClasses(it.tone);
-    return `
-      <div class="card auto-card flex items-start gap-3 p-3.5">
-        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-base ${t.chip}">${it.icon}</span>
-        <div class="min-w-0">
-          <p class="text-[12.5px] font-bold leading-tight ${t.text}">${it.title}</p>
-          <p class="mt-0.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400">${it.text}</p>
-        </div>
-      </div>`;
-  }).join('');
 }
 
 function renderDetails(m) {
   const rows = [
-    ['Стоимость поставки без НДС', money(m.deliveryNet), `${nf0.format(m.volume)} м³ × ${nf0.format(m.price)} ${CURRENCY}`],
-    ['НДС исходящий', money(m.vatOut), `${nf1.format(state.vatRate)}% от стоимости без НДС`],
-    ['Стоимость поставки с НДС', money(m.deliveryGross), 'сумма к взаимозачёту'],
+    ['Объём поставки', nf1.format(m.volume) + ' м³', 'по прайсу ' + money(m.price) + PER_M3],
+    ['Сумма сделки (взаимозачёт)', money(m.dealSum), 'объём × прайс, без НДС'],
+    ['Скидка застройщика', money(m.developerDiscountSum), nf1.format(state.developerDiscount) + '% от номинала квартир'],
+    ['Номинал квартир', money(m.retailTotal), nf2.format(m.areaM2) + ' м² × ' + money(m.pricePerM2) + PER_M2],
+    ['Цена зачёта 1 м²', money(m.priceM2Offset), 'розничная цена минус скидка застройщика'],
+    ['Скидка быстрой продажи', money(m.quickSaleLoss), nf1.format(state.quickSaleDiscount) + '% от номинала'],
+    ['Комиссия риелтора', money(m.realtorCost), nf1.format(state.realtorFee) + '% от номинала'],
+    ['Прочие расходы', money(m.otherCost), nf1.format(state.otherExpenses) + '% от номинала'],
+    ['Выручка от продажи', money(m.revenue), 'номинал минус издержки продажи'],
+    ['НДС к уплате', money(m.vatPayable), m.vatEnabled ? `выделен из выручки по ставке ${nf1.format(state.vatRate)}%, вычет ${money(state.inputVat)}` : 'НДС в расчёте не участвует'],
+    ['Чистый кэш до заморозки', money(m.cashNet), 'выручка минус НДС'],
+    ['Потери от заморозки', money(m.timeLoss), nf1.format(m.months) + ' мес при ' + nf1.format(state.annualReturn) + '% годовых'],
+    ['Приведённый (реальный) кэш', money(m.discountedCash), 'фактически полученные деньги'],
     ['Себестоимость 1 м³', money(m.unitCost), 'сырьё + ФОТ со взносами + энергия + накладные'],
     ['Себестоимость всего объёма', money(m.costTotal), 'вложения завода'],
-    ['Прибыль от реализации', money(m.deliveryNet - m.costTotal), 'без НДС минус себестоимость'],
-    ['Номинальная стоимость квартир', money(m.retailTotal), `${nf0.format(state.apartmentsCount)} шт × ${nf0.format(state.apartmentPrice)} ${CURRENCY}`],
-    ['Цена зачёта квартир', money(m.offsetPrice), `скидка застройщика ${nf1.format(state.developerDiscount)}%`],
-    ['Баланс взаимозачёта', money(m.balance), `доля расхождения ${pct(Math.abs(m.balanceShare))}`],
-    ['Кэш при продаже без учёта времени', money(m.cashNominal), 'номинал минус издержки продажи'],
-    ['Потери от заморозки', money(m.timeLoss), `${nf1.format(m.months)} мес при ${nf1.format(state.monthlyReturn)}%/мес`],
-    ['Приведённый (реальный) кэш', money(m.discountedCash), 'фактически полученные деньги'],
-    ['КПН (корпоративный подоходный налог)', money(m.profitTax), `ставка ${nf1.format(state.profitTaxRate)}% · база ${money(Math.max(0, m.taxableProfit))}`],
-    ['НДС к уплате', money(m.vatPayable), state.vatPayableOn ? `вычет ${money(state.inputVat)}` : 'переложен на покупателя'],
+    ['Прибыль до налога', money(m.profitBeforeTax), 'реальный кэш минус себестоимость'],
+    ['КПН', money(m.profitTax), `ставка ${nf1.format(state.profitTaxRate)}%`],
     ['Чистая денежная прибыль', money(m.netProfit), 'итог сделки'],
     ['ROI', pct(m.roi), 'к производственной себестоимости'],
     ['Эффективная цена 1 м³', nf0.format(Math.round(m.effectivePrice)) + PER_M3, `отклонение от прайса ${signedPct(m.priceDelta)}`]
@@ -618,7 +509,7 @@ function renderChart(key, canvasId, type, spec) {
   if (!ch) {
     const el = document.getElementById(canvasId);
     if (!el) return;
-    ch = new Chart(el, { type, data: spec.data, options: spec.options });
+    ch = new Chart(el, { type, data: spec.data, options: spec.options, plugins: spec.plugins || [] });
     ch._theme = t.name;
     charts[key] = ch;
   } else {
@@ -632,61 +523,120 @@ function destroyCharts() {
   Object.keys(charts).forEach((k) => { charts[k].destroy(); delete charts[k]; });
 }
 
-/* --- 1. Водопад: от номинала квартир к чистой прибыли ---------------------- */
+/* --- Водопад: от суммы сделки к чистой прибыли ----------------------------- */
+
+/* Переносит длинные подписи на две строки, чтобы влезали на телефоне */
+function wrapAxisLabel(text, max = 17) {
+  if (text.length <= max) return text;
+  let best = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === ' ' && (best < 0 || Math.abs(i - text.length / 2) < Math.abs(best - text.length / 2))) best = i;
+  }
+  return best > 0 ? [text.slice(0, best), text.slice(best + 1)] : text;
+}
+
+/* Подписывает суммы прямо на столбцах (без внешних библиотек) */
+const barValueLabels = {
+  id: 'barValueLabels',
+  afterDatasetsDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    const steps = chart.data.datasets[0] && chart.data.datasets[0].steps;
+    if (!meta || !steps) return;
+    const ctx = chart.ctx;
+    const t = themeTokens();
+    ctx.save();
+    ctx.font = '700 11px Inter, system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((bar, i) => {
+      const s = steps[i];
+      if (!s) return;
+      const isTotal = s.kind === 'total' || s.kind === 'subtotal' || s.kind === 'profit' || s.kind === 'loss';
+      const amount = isTotal ? s.to : Math.abs(s.to - s.from);
+      const text = (isTotal ? '' : s.kind === 'plus' ? '+' : '−') + nfShort.format(Math.round(amount)) + ' ' + CURRENCY;
+      /* подпись всегда справа от столбца — на сам столбец текст не заходит.
+         У горизонтальных столбцов Chart.js хранит концы в bar.x и bar.base */
+      const x1 = Math.max(bar.x, bar.base);
+      ctx.fillStyle = t.text;
+      ctx.textAlign = 'left';
+      ctx.fillText(text, x1 + 6, bar.y);
+    });
+    ctx.restore();
+  }
+};
+
 function waterfallSpec(m, t) {
   const steps = [];
-  let cursor = m.retailTotal;
+  let cursor = 0;
 
-  steps.push({ label: 'Номинал квартир', from: 0, to: cursor, kind: 'total' });
-  const push = (label, amount, kind) => {
+  const subtotal = (label, kind) => steps.push({ label, from: 0, to: cursor, kind: kind || 'subtotal' });
+  const up = (label, amount) => {
     if (Math.abs(amount) < 0.5) return;
-    const next = cursor - amount;
-    steps.push({ label, from: next, to: cursor, kind });
-    cursor = next;
+    steps.push({ label, from: cursor, to: cursor + amount, kind: 'plus' });
+    cursor += amount;
   };
-  push('Скидка быстрой продажи', m.quickSaleLoss, 'minus');
-  push('Комиссия риелтора', m.realtorCost, 'minus');
-  push('Прочие расходы', m.otherCost, 'minus');
-  steps.push({ label: 'Кэш при продаже', from: 0, to: cursor, kind: 'subtotal' });
-  push('Потери от заморозки', m.timeLoss, 'minus');
-  steps.push({ label: 'Приведённый кэш', from: 0, to: cursor, kind: 'subtotal' });
-  push('Себестоимость ваты', m.costTotal, 'minus');
-  push('КПН', m.profitTax, 'minus');
-  push('НДС к уплате', m.vatPayable, 'minus');
+  const down = (label, amount) => {
+    if (Math.abs(amount) < 0.5) return;
+    steps.push({ label, from: cursor - amount, to: cursor, kind: 'minus' });
+    cursor -= amount;
+  };
+
+  /* 1. сумма сделки (взаимозачёт) — по прайсу ваты либо по метрам квартир */
+  steps.push({ label: 'Сумма сделки (взаимозачёт)', from: 0, to: m.dealSum, kind: 'total' });
+  cursor = m.dealSum;
+  /* 2. скидка застройщика — плюсом вправо от конца предыдущего столбца */
+  up('Скидка застройщика', m.developerDiscountSum);
+  subtotal('Номинал квартир');
+  /* 3. издержки монетизации квартир */
+  down('Скидка быстрой продажи', m.quickSaleLoss);
+  down('Комиссия риелтора', m.realtorCost);
+  down('Прочие расходы', m.otherCost);
+  subtotal('Выручка от продажи');
+  /* 4. НДС (от выручки), заморозка, себестоимость */
+  down('НДС к уплате', m.vatPayable);
+  down('Потери от заморозки', m.timeLoss);
+  down('Себестоимость ваты', m.costTotal);
+  subtotal('Прибыль до налога');
+  down('КПН', m.profitTax);
   steps.push({ label: 'Чистая прибыль', from: 0, to: cursor, kind: cursor >= 0 ? 'profit' : 'loss' });
 
   const colorOf = (kind) => ({
-    total: C.brand, subtotal: C.violet, minus: C.loss,
+    total: C.brand, plus: C.profit, subtotal: C.violet, minus: C.loss,
     profit: C.profit, loss: C.loss
   }[kind] || C.cost);
 
+  const isTotalKind = (kind) => kind === 'total' || kind === 'subtotal' || kind === 'profit' || kind === 'loss';
+
   return {
+    plugins: [barValueLabels],
     data: {
-      labels: steps.map((s) => s.label),
+      labels: steps.map((s) => wrapAxisLabel(s.label, window.innerWidth < 640 ? 17 : 30)),
       datasets: [{
         label: 'Сумма',
+        steps: steps,
         data: steps.map((s) => [Math.min(s.from, s.to), Math.max(s.from, s.to)]),
         backgroundColor: steps.map((s) => colorOf(s.kind) + 'e6'),
         hoverBackgroundColor: steps.map((s) => colorOf(s.kind)),
         borderRadius: 6,
         borderSkipped: false,
-        barPercentage: 0.72,
-        categoryPercentage: 0.85
+        barPercentage: 0.74,
+        categoryPercentage: 0.86
       }]
     },
     options: baseOptions(t, {
       indexAxis: 'y',
+      layout: { padding: { right: 12, left: 4 } },
       plugins: {
         legend: { display: false },
         tooltip: {
           backgroundColor: t.tooltipBg, titleColor: t.tooltipTitle, bodyColor: t.tooltipBody,
           borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: false,
           callbacks: {
+            title: (items) => (steps[items[0].dataIndex] || {}).label || '',
             label: (ctx) => {
-              const [a, b] = ctx.raw;
-              const step = steps[ctx.dataIndex];
-              const isTotal = step.kind === 'total' || step.kind === 'subtotal' || step.kind === 'profit' || step.kind === 'loss';
-              return isTotal ? ' Итог: ' + money(b) : ' Изменение: −' + money(Math.abs(b - a));
+              const s = steps[ctx.dataIndex];
+              if (!s) return '';
+              if (isTotalKind(s.kind)) return ' Итог: ' + money(s.to);
+              return (s.kind === 'plus' ? ' Плюс: +' : ' Минус: −') + money(Math.abs(s.to - s.from));
             }
           }
         }
@@ -695,107 +645,59 @@ function waterfallSpec(m, t) {
         x: {
           grid: { color: t.grid, drawBorder: false },
           border: { display: false },
+          suggestedMax: Math.max(m.retailTotal, m.dealSum, m.revenue, 0) * (window.innerWidth < 640 ? 1.45 : 1.4),
           ticks: { color: t.muted, font: { size: 10.5 }, callback: (v) => nfShort.format(v), maxTicksLimit: 7 }
         },
         y: {
           grid: { display: false },
           border: { display: false },
-          ticks: { color: t.text, font: { size: 11.5, weight: '600' }, crossAlign: 'far' }
+          ticks: { color: t.text, font: { size: 11, weight: '600' }, crossAlign: 'far', autoSkip: false }
         }
       }
     })
   };
 }
 
-/* --- 2. Пончик: структура стоимости квартир -------------------------------- */
-function doughnutSpec(m, t) {
-  const slices = [
-    { label: 'Скидка быстрой продажи', value: m.quickSaleLoss, color: C.qsale },
-    { label: 'Комиссия риелтора', value: m.realtorCost, color: C.realtor },
-    { label: 'Прочие расходы', value: m.otherCost, color: C.other },
-    { label: 'Потери от заморозки', value: m.timeLoss, color: C.time },
-    { label: 'Себестоимость ваты', value: m.costTotal, color: C.cost },
-    { label: 'КПН', value: m.profitTax, color: C.tax },
-    { label: 'НДС к уплате', value: m.vatPayable, color: C.vat },
-    { label: m.netProfit >= 0 ? 'Чистая прибыль' : 'Убыток', value: Math.abs(m.netProfit), color: m.netProfit >= 0 ? C.profit : C.loss }
-  ].filter((s) => s.value > 0.5);
-
-  const total = slices.reduce((a, s) => a + s.value, 0);
-
-  if (!slices.length) {
-    return {
-      data: { labels: ['Нет данных'], datasets: [{ data: [1], backgroundColor: ['#cbd5e1'], borderWidth: 0 }] },
-      options: baseOptions(t, {
-        cutout: '64%',
-        plugins: { legend: { display: false }, tooltip: { enabled: false } }
-      })
-    };
-  }
+/* --- Экран 3: план и факт по статьям -------------------------------------- */
+function factChartSpec(m, t) {
+  const rows = FACT_ROWS.map((r) => ({
+    label: r.label,
+    plan: Math.abs(r.plan(m)),
+    fact: Math.abs(num(state[r.key]))
+  }));
 
   return {
     data: {
-      labels: slices.map((s) => s.label),
-      datasets: [{
-        data: slices.map((s) => s.value),
-        backgroundColor: slices.map((s) => s.color),
-        borderWidth: 0,
-        hoverOffset: 8
-      }]
-    },
-    options: baseOptions(t, {
-      cutout: '62%',
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: t.muted, boxWidth: 10, boxHeight: 10, usePointStyle: true,
-            pointStyle: 'circle', padding: 10, font: { size: 11, weight: '600' }
-          }
+      labels: rows.map((r) => wrapAxisLabel(r.label, 20)),
+      datasets: [
+        {
+          label: 'План',
+          data: rows.map((r) => r.plan),
+          backgroundColor: C.violet + 'b3',
+          hoverBackgroundColor: C.violet,
+          borderRadius: 6, borderSkipped: false, barPercentage: 0.85, categoryPercentage: 0.8
         },
-        tooltip: {
-          backgroundColor: t.tooltipBg, titleColor: t.tooltipTitle, bodyColor: t.tooltipBody,
-          borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: false,
-          callbacks: {
-            label: (ctx) => ' ' + money(ctx.parsed) + '  ·  ' + pct(total > 0 ? ctx.parsed / total : 0)
-          }
+        {
+          label: 'Факт',
+          data: rows.map((r) => r.fact),
+          backgroundColor: C.brand + 'd9',
+          hoverBackgroundColor: C.brand,
+          borderRadius: 6, borderSkipped: false, barPercentage: 0.85, categoryPercentage: 0.8
         }
-      }
-    })
-  };
-}
-
-/* --- 3. Ключевые суммы ----------------------------------------------------- */
-function barsSpec(m, t) {
-  const rows = [
-    ['Номинал квартир', m.retailTotal, C.brand],
-    ['Цена зачёта', m.offsetPrice, C.indigo],
-    ['Поставка с НДС', m.deliveryGross, C.sky],
-    ['Себестоимость ваты', m.costTotal, C.cost],
-    ['Приведённый кэш', m.discountedCash, C.violet],
-    ['Чистая прибыль', m.netProfit, m.netProfit >= 0 ? C.profit : C.loss]
-  ];
-
-  return {
-    data: {
-      labels: rows.map((r) => r[0]),
-      datasets: [{
-        data: rows.map((r) => r[1]),
-        backgroundColor: rows.map((r) => r[2] + 'd9'),
-        hoverBackgroundColor: rows.map((r) => r[2]),
-        borderRadius: 7,
-        borderSkipped: false,
-        barPercentage: 0.7,
-        categoryPercentage: 0.85
-      }]
+      ]
     },
     options: baseOptions(t, {
       indexAxis: 'y',
       plugins: {
-        legend: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: { color: t.muted, boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', padding: 12, font: { size: 11, weight: '600' } }
+        },
         tooltip: {
           backgroundColor: t.tooltipBg, titleColor: t.tooltipTitle, bodyColor: t.tooltipBody,
-          borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: false,
-          callbacks: { label: (ctx) => ' ' + money(ctx.parsed.x) }
+          borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10,
+          displayColors: true, boxWidth: 8, boxHeight: 8, usePointStyle: true,
+          callbacks: { label: (ctx) => ' ' + ctx.dataset.label + ': ' + money(ctx.parsed.x) }
         }
       },
       scales: {
@@ -807,131 +709,7 @@ function barsSpec(m, t) {
         y: {
           grid: { display: false },
           border: { display: false },
-          ticks: { color: t.text, font: { size: 11.5, weight: '600' } }
-        }
-      }
-    })
-  };
-}
-
-/* --- 4. Зависимость от срока продажи -------------------------------------- */
-function termSpec(t) {
-  const points = new Set();
-  for (let i = 0; i <= 12; i++) points.add(i * 3);
-  points.add(Math.max(0, Math.round(state.saleMonths)));
-  const list = Array.from(points).filter((v) => v >= 0).sort((a, b) => a - b);
-
-  const profits = list.map((x) => calc(Object.assign({}, state, { saleMonths: x })).netProfit);
-  const cash = list.map((x) => calc(Object.assign({}, state, { saleMonths: x })).discountedCash);
-
-  const current = list.indexOf(Math.max(0, Math.round(state.saleMonths)));
-
-  const pt = (color) => (ctx) => ctx.dataIndex === current ? 6 : 0;
-  const ptColor = (color) => (ctx) => ctx.dataIndex === current ? color : 'transparent';
-
-  return {
-    data: {
-      labels: list.map((x) => x + ' мес'),
-      datasets: [
-        {
-          label: 'Чистая прибыль',
-          data: profits,
-          borderColor: C.profit,
-          backgroundColor: C.profit,
-          borderWidth: 2.5,
-          tension: 0.35,
-          fill: false,
-          pointRadius: pt(C.profit),
-          pointHoverRadius: 6,
-          pointBackgroundColor: ptColor(C.profit)
-        },
-        {
-          label: 'Приведённый кэш',
-          data: cash,
-          borderColor: C.violet,
-          backgroundColor: C.violet,
-          borderWidth: 2,
-          borderDash: [5, 4],
-          tension: 0.35,
-          fill: false,
-          pointRadius: pt(C.violet),
-          pointHoverRadius: 6,
-          pointBackgroundColor: ptColor(C.violet)
-        }
-      ]
-    },
-    options: baseOptions(t, {
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: t.muted, boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', padding: 12, font: { size: 11, weight: '600' } }
-        },
-        tooltip: {
-          backgroundColor: t.tooltipBg, titleColor: t.tooltipTitle, bodyColor: t.tooltipBody,
-          borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: true, boxWidth: 8, boxHeight: 8, usePointStyle: true,
-          callbacks: {
-            label: (ctx) => ' ' + ctx.dataset.label + ': ' + money(ctx.parsed.y)
-          }
-        }
-      },
-      scales: {
-        x: {
-          grid: { display: false }, border: { display: false },
-          ticks: { color: t.muted, font: { size: 10.5 }, maxTicksLimit: 8 }
-        },
-        y: {
-          grid: { color: t.grid, drawBorder: false }, border: { display: false },
-          ticks: { color: t.muted, font: { size: 10.5 }, callback: (v) => nfShort.format(v), maxTicksLimit: 6 }
-        }
-      }
-    })
-  };
-}
-
-/* --- 5. Чувствительность к скидке при продаже ------------------------------ */
-function sensSpec(t) {
-  const list = [];
-  for (let v = 0; v <= 35.0001; v += 2.5) list.push(Math.round(v * 10) / 10);
-  const cur = clamp(state.quickSaleDiscount, 0, 35);
-  if (!list.some((v) => Math.abs(v - cur) < 0.05)) { list.push(Math.round(cur * 10) / 10); list.sort((a, b) => a - b); }
-
-  const profits = list.map((x) => calc(Object.assign({}, state, { quickSaleDiscount: x })).netProfit);
-  const current = list.findIndex((v) => Math.abs(v - Math.round(cur * 10) / 10) < 0.0001);
-
-  return {
-    data: {
-      labels: list.map((x) => nf1.format(x) + '%'),
-      datasets: [{
-        label: 'Чистая прибыль',
-        data: profits,
-        borderColor: C.brand,
-        backgroundColor: 'rgba(59,130,246,.14)',
-        borderWidth: 2.5,
-        tension: 0.3,
-        fill: true,
-        pointRadius: (ctx) => ctx.dataIndex === current ? 6 : 0,
-        pointHoverRadius: 6,
-        pointBackgroundColor: () => C.brand
-      }]
-    },
-    options: baseOptions(t, {
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: t.tooltipBg, titleColor: t.tooltipTitle, bodyColor: t.tooltipBody,
-          borderColor: t.border, borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: false,
-          callbacks: { label: (ctx) => ' Прибыль: ' + money(ctx.parsed.y) }
-        }
-      },
-      scales: {
-        x: {
-          grid: { display: false }, border: { display: false },
-          ticks: { color: t.muted, font: { size: 10.5 }, maxTicksLimit: 8 },
-          title: { display: true, text: 'Скидка для быстрой продажи', color: t.muted, font: { size: 10.5, weight: '600' } }
-        },
-        y: {
-          grid: { color: t.grid, drawBorder: false }, border: { display: false },
-          ticks: { color: t.muted, font: { size: 10.5 }, callback: (v) => nfShort.format(v), maxTicksLimit: 6 }
+          ticks: { color: t.text, font: { size: 10.5, weight: '600' }, autoSkip: false }
         }
       }
     })
@@ -943,19 +721,142 @@ function sensSpec(t) {
  * ========================================================================== */
 function render() {
   const m = calc(state);
-  renderVerdict(m);
   renderHero(m);
-  renderStats(m);
   renderSectionSummaries(m);
-  renderInsights(m);
+  renderMonths(m);
   renderDetails(m);
+  renderFact(m);
 
   const t = themeTokens();
-  renderChart('waterfall', 'chartWaterfall', 'bar', waterfallSpec(m, t));
-  renderChart('doughnut', 'chartDoughnut', 'doughnut', doughnutSpec(m, t));
-  renderChart('bars', 'chartBars', 'bar', barsSpec(m, t));
-  renderChart('term', 'chartTerm', 'line', termSpec(t));
-  renderChart('sens', 'chartSens', 'line', sensSpec(t));
+  if (isScreenActive('screen1')) renderChart('waterfall', 'chartWaterfall', 'bar', waterfallSpec(m, t));
+  if (isScreenActive('screen3')) renderChart('planfact', 'chartPlanFact', 'bar', factChartSpec(m, t));
+}
+
+/* ============================================================================
+ *  ЭКРАН 3: ФАКТ — ПЛАН / ФАКТ
+ * ========================================================================== */
+const FACT_ROWS = [
+  { key: 'factRevenue', label: 'Номинал квартир к продаже', sign: 1, plan: (m) => m.retailTotal },
+  { key: 'factQuickSaleLoss', label: 'Скидка быстрой продажи', sign: -1, plan: (m) => m.quickSaleLoss },
+  { key: 'factRealtorFee', label: 'Комиссия риелтора', sign: -1, plan: (m) => m.realtorCost },
+  { key: 'factOtherExpenses', label: 'Прочие расходы', sign: -1, plan: (m) => m.otherCost },
+  { key: 'factVat', label: 'НДС к уплате', sign: -1, plan: (m) => m.vatPayable },
+  { key: 'factTimeLoss', label: 'Потери от заморозки', sign: -1, plan: (m) => m.timeLoss },
+  { key: 'factCost', label: 'Себестоимость ваты', sign: -1, plan: (m) => m.costTotal },
+  { key: 'factCit', label: 'КПН', sign: -1, plan: (m) => m.profitTax }
+];
+
+const ZERO_EPS = 1.5;   // допуск на округление: разница меньше считается «план совпал»
+
+/* Журнал строится один раз, чтобы поля не теряли фокус при пересчёте */
+function renderFactRows() {
+  const host = document.getElementById('factRows');
+  if (!host) return;
+  const head = `
+    <div class="mt-2 hidden gap-2 px-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_8.5rem_7.5rem] dark:text-slate-500">
+      <span>Статья</span><span class="text-right">План, ${CURRENCY}</span><span class="text-right">Факт, ${CURRENCY}</span><span class="text-right">Отклонение</span>
+    </div>`;
+  const rows = FACT_ROWS.map((r) => `
+    <div class="grid grid-cols-1 items-center gap-2 border-t border-slate-100 py-3 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_8rem_8.5rem_7.5rem]">
+      <p class="text-[12.5px] font-medium text-slate-600 dark:text-slate-300">
+        <span class="mr-1 font-bold ${r.sign < 0 ? 'text-rose-500' : 'text-emerald-500'}">${r.sign < 0 ? '−' : '+'}</span>${r.label}
+      </p>
+      <p data-plan="${r.key}" class="tabular text-[12px] font-bold text-slate-500 dark:text-slate-400 sm:text-right"></p>
+      <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-field="${r.key}" data-zero-empty class="input-base h-11 text-right text-[14px]" />
+      <p data-dev="${r.key}" class="tabular text-[12px] font-bold sm:text-right"></p>
+    </div>`).join('');
+  host.innerHTML = head + rows;
+}
+
+function factMetrics(m) {
+  let factNet = 0;
+  let planNet = 0;
+  let filled = 0;
+  FACT_ROWS.forEach((r) => {
+    const f = Math.max(0, num(state[r.key]));
+    if (f > 0) filled++;
+    factNet += r.sign * f;
+    planNet += r.sign * r.plan(m);
+  });
+  return { factNet, planNet, filled, total: FACT_ROWS.length, delta: factNet - planNet };
+}
+
+function renderFact(m) {
+  const fm = factMetrics(m);
+  const round = (v) => nf0.format(Math.round(Math.abs(v))) + ' ' + CURRENCY;
+
+  FACT_ROWS.forEach((r) => {
+    const plan = Math.abs(r.plan(m));
+    const fact = Math.max(0, num(state[r.key]));
+
+    const planEl = document.querySelector(`[data-plan="${r.key}"]`);
+    if (planEl) planEl.textContent = round(plan);
+
+    const devEl = document.querySelector(`[data-dev="${r.key}"]`);
+    if (!devEl) return;
+    if (fact <= 0) {
+      devEl.textContent = '—';
+      devEl.className = 'tabular text-[12px] font-bold text-slate-300 sm:text-right dark:text-slate-600';
+      return;
+    }
+    const dev = fact - plan;
+    const good = r.sign < 0 ? dev <= 0 : dev >= 0;
+    const close = Math.abs(dev) < ZERO_EPS;
+    devEl.textContent = close ? '0 ' + CURRENCY : signedMoney(dev);
+    devEl.className = 'tabular text-[12px] font-bold sm:text-right ' + (
+      close
+        ? 'text-slate-400 dark:text-slate-500'
+        : good ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+    );
+  });
+
+  const host = document.getElementById('factSummary');
+  if (!host) return;
+
+  if (fm.filled === 0) {
+    host.innerHTML = `
+      <div class="card auto-card col-span-2 p-3.5 lg:col-span-4">
+        <p class="text-[12.5px] font-bold text-slate-600 dark:text-slate-300">Факт пока не заполнен</p>
+        <p class="mt-0.5 text-[11.5px] leading-snug text-slate-500 dark:text-slate-400">
+          Впишите фактические суммы в журнал ниже или нажмите «Скопировать план» — отклонения и итог посчитаются сами.
+        </p>
+      </div>`;
+    return;
+  }
+
+  const factCost = Math.max(0, num(state.factCost));
+  const roiFact = factCost > 0 ? fm.factNet / factCost : 0;
+  const deltaShare = fm.planNet !== 0 ? fm.delta / Math.abs(fm.planNet) : 0;
+  const sameAsPlan = Math.abs(fm.delta) < ZERO_EPS;
+
+  host.innerHTML = [
+    heroCard({
+      label: 'Фактическая чистая прибыль', icon: '💰',
+      value: money(fm.factNet),
+      sub: 'план ' + money(fm.planNet),
+      tone: fm.factNet > 0 ? 'good' : fm.factNet < 0 ? 'bad' : 'default'
+    }),
+    heroCard({
+      label: 'Отклонение от плана', icon: '⚖️',
+      value: sameAsPlan ? '0 ' + CURRENCY : signedMoney(fm.delta),
+      sub: sameAsPlan
+        ? 'факт совпал с планом'
+        : (fm.delta > 0 ? 'лучше плана на ' : 'хуже плана на ') + pct(Math.abs(deltaShare)),
+      tone: sameAsPlan ? 'default' : fm.delta > 0 ? 'good' : 'bad'
+    }),
+    heroCard({
+      label: 'ROI по факту', icon: '📈',
+      value: pct(roiFact),
+      sub: factCost > 0 ? 'к фактической себестоимости' : 'укажите фактическую себестоимость',
+      tone: roiFact >= 0.25 ? 'good' : roiFact > 0 ? 'warn' : 'bad'
+    }),
+    heroCard({
+      label: 'Заполнено статей', icon: '🧾',
+      value: fm.filled + ' из ' + fm.total,
+      sub: 'чем больше статей, тем точнее итог',
+      tone: fm.filled >= fm.total ? 'good' : 'default'
+    })
+  ].join('');
 }
 
 /* ============================================================================
@@ -978,45 +879,185 @@ function fieldByKey(key) {
   return null;
 }
 
-function bindInputs() {
-  const host = document.getElementById('inputSections');
+function setLinkValue(key, v) {
+  const el = document.querySelector(`[data-link="${key}"]`);
+  if (el && document.activeElement !== el) el.value = fmtInput(v);
+}
+
+function refreshDealInputs() {
+  document.querySelectorAll('[data-link]').forEach((el) => { el.value = fmtInput(state[el.dataset.link]); });
+}
+
+/* Экран 1: любое из двух полей задаёт второе, баланс взаимозачёта всегда сходится */
+function bindDealInputs() {
+  const host = document.getElementById('dealInputs');
+  if (!host) return;
 
   host.addEventListener('input', (e) => {
-    const el = e.target.closest('[data-field]');
-    if (!el || el.type === 'checkbox') return;
-    state[el.dataset.field] = readInput(el);
-    render();
-    scheduleSave();
-  });
+    const el = e.target.closest('[data-link]');
+    if (!el) return;
+    const key = el.dataset.link;
+    const v = Math.max(0, readInput(el));
 
-  host.addEventListener('change', (e) => {
-    const el = e.target.closest('[data-field]');
-    if (!el || el.type !== 'checkbox') return;
-    state[el.dataset.field] = el.checked;
+    if (key === 'volume') {
+      state.volume = v;
+      state.areaDriven = false;
+      state.areaM2 = round2(areaFromVolume(v, state));
+      setLinkValue('areaM2', state.areaM2);
+    } else {
+      state.areaM2 = v;
+      state.areaDriven = true;
+      state.volume = round2(volumeFromArea(v, state));
+      setLinkValue('volume', state.volume);
+    }
     render();
     scheduleSave();
   });
 
   host.addEventListener('focusout', (e) => {
-    const el = e.target.closest('[data-field]');
-    if (!el || el.type === 'checkbox') return;
-    const key = el.dataset.field;
-    const f = fieldByKey(key);
-    let v = readInput(el);
-    if (f) {
-      if (typeof f.min === 'number') v = Math.max(f.min, v);
-      if (typeof f.max === 'number') v = Math.min(f.max, v);
-    }
-    state[key] = v;
-    el.value = fmtInput(v);
+    if (!e.target.closest('[data-link]')) return;
+    refreshDealInputs();
     render();
     scheduleSave();
   });
 }
 
+/* Срок продажи: бегунок + прямое поле ввода (влияет на «Потери от заморозки») */
+function bindMonths() {
+  const range = document.getElementById('monthsRange');
+  const input = document.getElementById('monthsInput');
+  if (!range || !input) return;
+
+  const apply = (v, from) => {
+    const n = clamp(Math.round(v), 0, MONTHS_MAX);
+    state.saleMonths = n;
+    if (from !== 'range') range.value = String(n);
+    if (from !== 'input') input.value = String(n);
+    render();
+    scheduleSave();
+  };
+
+  range.addEventListener('input', () => apply(parseFloat(range.value) || 0, 'range'));
+  input.addEventListener('input', () => apply(readInput(input), 'input'));
+  input.addEventListener('focusout', () => {
+    input.value = String(clamp(Math.round(state.saleMonths), 0, MONTHS_MAX));
+    render();
+    scheduleSave();
+  });
+}
+
+function bindInputs() {
+  const hosts = [document.getElementById('inputSections'), document.getElementById('factRows')].filter(Boolean);
+
+  hosts.forEach((host) => {
+    const fromInputs = host.id === 'inputSections';
+
+    host.addEventListener('input', (e) => {
+      const el = e.target.closest('[data-field]');
+      if (!el || el.type === 'checkbox') return;
+      state[el.dataset.field] = readInput(el);
+      if (fromInputs) { syncDeal(); refreshDealInputs(); }
+      render();
+      scheduleSave();
+    });
+
+    host.addEventListener('change', (e) => {
+      const el = e.target.closest('[data-field]');
+      if (!el || el.type !== 'checkbox') return;
+      state[el.dataset.field] = el.checked;
+      render();
+      scheduleSave();
+    });
+
+    host.addEventListener('focusout', (e) => {
+      const el = e.target.closest('[data-field]');
+      if (!el || el.type === 'checkbox') return;
+      const key = el.dataset.field;
+      const f = fieldByKey(key);
+      let v = readInput(el);
+      if (f) {
+        if (typeof f.min === 'number') v = Math.max(f.min, v);
+        if (typeof f.max === 'number') v = Math.min(f.max, v);
+      }
+      state[key] = v;
+      el.value = el.hasAttribute('data-zero-empty') && !v ? '' : fmtInput(v);
+      if (fromInputs) { syncDeal(); refreshDealInputs(); }
+      render();
+      scheduleSave();
+    });
+  });
+}
+
+/* --------------------------- Экраны (вкладки) ---------------------------- */
+function isScreenActive(id) {
+  const el = document.getElementById(id);
+  return !!el && !el.classList.contains('hidden');
+}
+
+function showScreen(n, silent) {
+  const target = 'screen' + n;
+  document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('hidden', s.id !== target));
+  document.querySelectorAll('[data-screen]').forEach((b) => {
+    b.classList.toggle('tab-btn--active', b.dataset.screen === String(n));
+  });
+  try { localStorage.setItem(SCREEN_KEY, String(n)); } catch (e) { /* noop */ }
+  if (!silent && location.hash !== '#screen' + n) {
+    try { history.replaceState(null, '', '#screen' + n); } catch (e) { location.hash = 'screen' + n; }
+  }
+  render();
+  requestAnimationFrame(() => {
+    Object.keys(charts).forEach((k) => {
+      const ch = charts[k];
+      if (ch && ch.canvas && ch.canvas.offsetParent !== null) ch.resize();
+    });
+  });
+}
+
+function initialScreen() {
+  const fromHash = parseInt((location.hash.match(/screen(\d)/) || [])[1] || '0', 10);
+  if (fromHash >= 1 && fromHash <= 3) return fromHash;
+  const saved = parseInt(localStorage.getItem(SCREEN_KEY) || '1', 10);
+  return saved >= 1 && saved <= 3 ? saved : 1;
+}
+
+function bindTabs() {
+  document.querySelectorAll('[data-screen]').forEach((btn) => {
+    btn.addEventListener('click', () => showScreen(parseInt(btn.dataset.screen, 10)));
+  });
+  window.addEventListener('hashchange', () => {
+    const found = location.hash.match(/screen(\d)/);
+    const n = found ? parseInt(found[1], 10) : 1;
+    if (document.getElementById('screen' + n)) showScreen(n, true);
+  });
+}
+
+/* Экран 3: «Скопировать план» и «Очистить» */
+function bindFactButtons() {
+  const fill = document.getElementById('factFill');
+  const clear = document.getElementById('factClear');
+  if (fill) {
+    fill.addEventListener('click', () => {
+      const m = calc(state);
+      FACT_ROWS.forEach((r) => { state[r.key] = Math.round(Math.abs(r.plan(m))); });
+      refreshInputValues();
+      render();
+      scheduleSave();
+    });
+  }
+  if (clear) {
+    clear.addEventListener('click', () => {
+      FACT_ROWS.forEach((r) => { state[r.key] = 0; });
+      refreshInputValues();
+      render();
+      scheduleSave();
+    });
+  }
+}
+
 function applyPreset(name) {
   const p = PRESETS[name] || {};
   state = Object.assign({}, DEFAULTS, p);
+  syncDeal();
   refreshInputValues();
   render();
   scheduleSave();
@@ -1029,7 +1070,8 @@ function bindToolbar() {
   const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-[18px] w-[18px]"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
 
   const syncThemeIcon = () => {
-    btnTheme.innerHTML = document.documentElement.classList.contains('dark') ? sunIcon : moonIcon;
+    const dark = document.documentElement.classList.contains('dark');
+    btnTheme.innerHTML = (dark ? sunIcon : moonIcon) + `<span class="hidden sm:inline">${dark ? 'Светлая' : 'Тёмная'}</span>`;
   };
   syncThemeIcon();
 
@@ -1044,6 +1086,7 @@ function bindToolbar() {
   /* Сброс */
   document.getElementById('btnReset').addEventListener('click', () => {
     state = Object.assign({}, DEFAULTS);
+    syncDeal();
     refreshInputValues();
     render();
     scheduleSave();
@@ -1165,9 +1208,18 @@ function bindShare() {
  *  СТАРТ
  * ========================================================================== */
 (function init() {
+  state.saleMonths = clamp(Math.round(num(state.saleMonths)), 0, MONTHS_MAX);
+  syncDeal();
   renderInputs();
+  renderFactRows();
+  refreshInputValues();
+  refreshDealInputs();
   bindInputs();
+  bindDealInputs();
+  bindMonths();
+  bindFactButtons();
+  bindTabs();
   bindToolbar();
   bindShare();
-  render();
+  showScreen(initialScreen(), true);
 })();

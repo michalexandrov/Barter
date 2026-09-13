@@ -152,6 +152,89 @@ details[open] > summary .chev { transform: rotate(180deg); }
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
+/* ------------------------- Вкладки экранов ------------------------- */
+.tab-btn {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding: .45rem .5rem;
+  border: 0;
+  border-radius: .75rem;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+.tab-btn:hover { background: #f1f5f9; color: #1d4ed8; }
+.tab-btn--active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 8px 20px -12px rgba(37, 99, 235, .9);
+}
+.tab-btn--active:hover { background: #1d4ed8; color: #ffffff; }
+
+html.dark .tab-btn { color: #94a3b8; }
+html.dark .tab-btn:hover { background: rgba(30, 41, 59, .8); color: #93c5fd; }
+html.dark .tab-btn--active { background: #2563eb; color: #ffffff; }
+
+/* ------------------------- Бегунок срока продажи ------------------------- */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 1.75rem;
+  background: transparent;
+  cursor: pointer;
+}
+.range::-webkit-slider-runnable-track {
+  height: .5rem;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: -.5rem;
+  border-radius: 999px;
+  border: 3px solid #ffffff;
+  background: #2563eb;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, .5);
+}
+.range::-moz-range-track {
+  height: .5rem;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+.range::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  border: 3px solid #ffffff;
+  background: #2563eb;
+}
+html.dark .range::-webkit-slider-runnable-track { background: #334155; }
+html.dark .range::-webkit-slider-thumb { border-color: #0b1220; }
+html.dark .range::-moz-range-track { background: #334155; }
+html.dark .range::-moz-range-thumb { border-color: #0b1220; }
+
+.range:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; border-radius: .5rem; }
+
+/* ------------------------- Печать ------------------------- */
+@media print {
+  .no-print { display: none !important; }
+
+  /* на бумаге показываем все три экрана подряд */
+  .screen.hidden { display: block !important; }
+  .screen + .screen { margin-top: 1.5rem; }
+}
+
 .tabular { font-variant-numeric: tabular-nums; }
 
 /* Скроллбар в тёмной теме */
